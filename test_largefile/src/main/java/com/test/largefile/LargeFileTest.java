@@ -62,6 +62,25 @@ public class LargeFileTest {
 			}
 			latch.await();
 			System.out.println("用户分数：" + score + " ,用户记录位置：" + record + " ,排名：" + rank);
+			
+			//开始坐标
+			beginIndex = 0;
+			// 开始结束坐标
+			endIndex = 0;
+			for (int i = 0; i < 100; i++) {
+				beginIndex = endIndex;
+				if (i + 1 == 100) {
+					endIndex = fc.size();
+					tempMbbMap.put(i, fc.map(FileChannel.MapMode.READ_ONLY, beginIndex,endIndex-beginIndex));
+					break;
+				}
+				//计算结束坐标
+				endIndex += tempBlockSize;
+				// 计算出完整的结束位置
+				endIndex += getCompleteEndIndex(endIndex, raf, '\n');
+				//装进临时区块map
+				tempMbbMap.put(i, fc.map(FileChannel.MapMode.READ_ONLY, beginIndex,endIndex-beginIndex));
+			}
 			//开始查找用户排名
 	        CountDownLatch ranklatch = new CountDownLatch(100);
 	        for (int i = 0; i < 100; i++) {

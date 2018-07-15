@@ -2111,3 +2111,11 @@
 2018-07-16 03:01:03,010 [Worker-198] INFO  o.e.m.c.i.embedder.EclipseLogger - skip non existing resourceDirectory E:\JavaTools\WorkSpace\test_largefile\test_largefile\src\main\resources
 2018-07-16 03:01:03,010 [Worker-198] WARN  o.e.m.c.i.embedder.EclipseLogger - Using platform encoding (GBK actually) to copy filtered resources, i.e. build is platform dependent!
 2018-07-16 03:01:03,010 [Worker-198] INFO  o.e.m.c.i.embedder.EclipseLogger - skip non existing resourceDirectory E:\JavaTools\WorkSpace\test_largefile\test_largefile\src\test\resources
+2018-07-16 03:28:16,716 [Worker-209] WARN  o.e.m.c.i.embedder.EclipseLogger - Using platform encoding (GBK actually) to copy filtered resources, i.e. build is platform dependent!
+2018-07-16 03:28:16,716 [Worker-209] INFO  o.e.m.c.i.embedder.EclipseLogger - skip non existing resourceDirectory E:\JavaTools\WorkSpace\test_largefile\test_largefile\src\main\resources
+2018-07-16 03:28:16,716 [Worker-209] WARN  o.e.m.c.i.embedder.EclipseLogger - Using platform encoding (GBK actually) to copy filtered resources, i.e. build is platform dependent!
+2018-07-16 03:28:16,716 [Worker-209] INFO  o.e.m.c.i.embedder.EclipseLogger - skip non existing resourceDirectory E:\JavaTools\WorkSpace\test_largefile\test_largefile\src\test\resources
+2018-07-16 03:28:43,459 [Worker-212] WARN  o.e.m.c.i.embedder.EclipseLogger - Using platform encoding (GBK actually) to copy filtered resources, i.e. build is platform dependent!
+2018-07-16 03:28:43,459 [Worker-212] INFO  o.e.m.c.i.embedder.EclipseLogger - skip non existing resourceDirectory E:\JavaTools\WorkSpace\test_largefile\test_largefile\src\main\resources
+2018-07-16 03:28:43,459 [Worker-212] WARN  o.e.m.c.i.embedder.EclipseLogger - Using platform encoding (GBK actually) to copy filtered resources, i.e. build is platform dependent!
+2018-07-16 03:28:43,459 [Worker-212] INFO  o.e.m.c.i.embedder.EclipseLogger - skip non existing resourceDirectory E:\JavaTools\WorkSpace\test_largefile\test_largefile\src\test\resources
