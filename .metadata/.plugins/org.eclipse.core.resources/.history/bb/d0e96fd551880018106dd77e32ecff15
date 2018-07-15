@@ -1,0 +1,223 @@
+package com.test.largefile;
+
+import java.io.RandomAccessFile;
+import java.io.UnsupportedEncodingException;
+import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+public class LargeFileTest {
+	
+	private static long score = 0;
+	
+	private static long rank = 0;
+
+	public static void getUserRank(String userId, String filePath) {
+		long starTime = System.currentTimeMillis();
+		RandomAccessFile raf = null;
+		FileChannel fc = null;
+		//临时区块map
+		Map<Integer, MappedByteBuffer> tempMbbMap = new HashMap<>();
+		try {
+			raf = new RandomAccessFile(filePath, "r");
+			fc = raf.getChannel();
+			// 分成100块
+			long tempBlockSize = fc.size() / 100;
+			//开始坐标
+			long beginIndex = 0;
+			// 开始结束坐标
+			long endIndex = 0;
+			
+			//计算出每个区块的MappedByteBuffer
+			for (int i = 0; i < 100; i++) {
+				beginIndex = endIndex;
+				if (i + 1 == 100) {
+					endIndex = fc.size();
+					tempMbbMap.put(i, fc.map(FileChannel.MapMode.READ_ONLY, beginIndex,endIndex-beginIndex));
+					break;
+				}
+				//计算结束坐标
+				endIndex += tempBlockSize;
+				// 计算出完整的结束位置
+				endIndex += getCompleteEndIndex(endIndex, raf, '\n');
+				//装进临时区块map
+				tempMbbMap.put(i, fc.map(FileChannel.MapMode.READ_ONLY, beginIndex,endIndex-beginIndex));
+			}
+			
+			//多线程开始工作
+			ExecutorService getScoreService = Executors.newFixedThreadPool(3);
+	        CountDownLatch latch = new CountDownLatch(100);
+			for (int i = 0; i < 100; i++) {
+				getScoreService.execute(new getScoreThread(userId, tempMbbMap.get(i), latch));
+			}
+			latch.await();
+			long endTime = System.currentTimeMillis();
+			System.out.println("耗时：" + (endTime - starTime));
+		} catch (Exception e) {
+			e.printStackTrace();
+		} finally {
+			try {
+				raf.close();
+				fc.close();
+			} catch (Exception e2) {
+				e2.printStackTrace();
+			}
+		}
+	}
+	
+	/**
+	 * 寻找用户分数线程
+	 * @author Administrator
+	 */
+	static class getScoreThread implements Runnable {
+		private String userId;
+		private MappedByteBuffer tempMbb;
+		private CountDownLatch latch;
+		
+		public getScoreThread(String userId,MappedByteBuffer tempMbb, CountDownLatch latch){
+			super();
+			this.userId = userId;
+			this.tempMbb = tempMbb;
+			this.latch = latch;
+			
+		}
+
+		@Override
+		public void run() {
+			//找到分数的标识
+			boolean findFlag = false;
+			byte[][] lineByte = null;
+			while ((lineByte = readLine(tempMbb)) != null) {
+				if (Arrays.equals(userId.getBytes(), lineByte[0])) {
+					findFlag = true;
+					break;
+				}
+			}
+			//找到分数终止所有线程
+			if (findFlag) {
+					
+				score = ByteBuffer.wrap(lineByte[1]).getLong();
+					
+				for (int j = 0; j < latch.getCount(); j++) {
+					latch.countDown();
+				}
+			}else{
+				latch.countDown();
+			}
+			
+		}
+		
+	}
+
+	/**
+	 * 计算完整结束位置
+	 * @param endIndex
+	 * @param raf
+	 * @param separator
+	 */
+	public static long getCompleteEndIndex(long endIndex,RandomAccessFile raf, char separator) {
+		long count = 0;
+		try {
+			raf.seek(endIndex);
+			// 遇到分隔符结束
+			while (raf.read() != separator) {
+				count++;
+			}
+			count++;
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+		return count;
+	}
+
+	/**
+	 * 读取每一行的内容
+	 * 
+	 * @param mbb
+	 * @param begin
+	 * @param length
+	 * @return
+	 */
+	 public synchronized static byte[][] readLine(MappedByteBuffer mbb) {
+//		 System.out.println(Thread.currentThread());
+		// 当前缓冲区总长度
+		int limit = mbb.limit();
+		// 当前位置
+		int position = mbb.position();
+		// 用户ID
+		ByteBuffer bb = ByteBuffer.allocate(36);
+		// 用户分数
+		ByteBuffer cc = ByteBuffer.allocate(7);
+		// 读取到逗号标识
+		boolean f = false;
+		try {
+			// 读取完直接跳出并清理缓存
+			if (position >= limit) {
+				clean(mbb);
+				return null;
+			}
+			
+			while (position < limit) {
+				byte b = mbb.get();
+				// 每行当读取到逗号时将后面的部分装进用户分数byte数组
+				if (b == 44) {
+					f = true;
+				}
+				// 碰到换行符结束读取
+				if (System.getProperty("line.separator").equals("\r\n") && (b == 13 || b == 10)) {
+					mbb.get();
+					break;
+				} else if (f) {
+					cc.put(b);
+				} else {
+					bb.put(b);
+				}
+			}
+		} catch (Exception e) {
+			e.printStackTrace();
+			return null;
+		}
+		return new byte[][] { bb.array(), cc.array() };
+	}
+	
+	/**
+	 * 清理ByteBuffer
+	 * @param buffer
+	 * @throws Exception
+	 */
+	@SuppressWarnings({ "unchecked", "rawtypes" })
+	public synchronized static void clean(final MappedByteBuffer mbb) throws Exception {
+        AccessController.doPrivileged(new PrivilegedAction() {
+        	public Object run() {
+	            try {
+	               Method getCleanerMethod = mbb.getClass().getMethod("cleaner",new Class[0]);
+	               getCleanerMethod.setAccessible(true);
+	               sun.misc.Cleaner cleaner =(sun.misc.Cleaner)getCleanerMethod.invoke(mbb,new Object[0]);
+	               cleaner.clean();
+	            } catch(Exception e) {
+	               e.printStackTrace();
+	            }
+	            return null;
+        }
+        }); 
+	}
+	
+	
+
+	public static void main(String[] args) {
+		// 源文件路径
+		String inputFilePath = "E:/JavaTestFile/user_score.csv";
+		// 取用户名次
+		getUserRank("1661205e-14de-4805-b493-25a7cd177026", inputFilePath);
+
+	}
+}
