@@ -1,193 +1,116 @@
 package com.test.largefile;
 
+import java.io.FileNotFoundException;
 import java.io.RandomAccessFile;
-import java.lang.reflect.Method;
-import java.nio.ByteBuffer;
-import java.nio.MappedByteBuffer;
-import java.nio.channels.FileChannel;
-import java.security.AccessController;
-import java.security.PrivilegedAction;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class LargeFileTest {
 	
-	private static long score = 0;
+	private long score = 0;
 	
-	private static int record = 0;
+	private boolean recordFlag = false;
 	
-	private static long rank = 1;
+	private long rank = 1;
+	
+	private static final int blockSize = 100;
+	
+	private static final int threadNum = 1;
 
-	public static void getUserRank(String userId, String filePath) {
+	public void getUserRank(String userId, String filePath) {
 		long starTime = System.currentTimeMillis();
 		RandomAccessFile raf = null;
-		FileChannel fc = null;
-		//临时区块map
-		Map<Integer, MappedByteBuffer> tempMbbMap = new HashMap<>();
+		//开始坐标数组
+		long[] beginIndexs = new long[blockSize];
+		// 结束坐标数组
+		long[] endIndexs = new long[blockSize];
 		try {
 			raf = new RandomAccessFile(filePath, "r");
-			fc = raf.getChannel();
+			//计算出每个区块的开始结束位置
+			splitLargeFile(raf,beginIndexs,endIndexs);	
+			raf.close();
+			
+			//开始查找用户分数
+			ExecutorService executorService = Executors.newFixedThreadPool(threadNum);
+	        CountDownLatch latch = new CountDownLatch(blockSize);
+			for (int i = 0; i < blockSize; i++) {
+				executorService.execute(new getScoreThread(userId,filePath,beginIndexs[i],endIndexs[i],latch));
+			}
+			latch.await();
+			long endTime = System.currentTimeMillis();
+			System.out.println("找到用户:"+ userId +" ,分数：" + score);
+			System.out.println("耗时："+(endTime-starTime)+" ms");
+			
+			executorService.shutdown();
+			executorService.shutdownNow();
+			
+			System.out.println("开始找用户排名...");
+			//开始查找用户排名
+			executorService = Executors.newFixedThreadPool(threadNum);
+	        CountDownLatch ranklatch = new CountDownLatch(blockSize);
+	        for (int i = 0; i < 100; i++) {
+	        	executorService.execute(new getRankThread(userId,filePath,beginIndexs[i],endIndexs[i],ranklatch));
+			}
+	        ranklatch.await();
+	        endTime = System.currentTimeMillis();
+			System.out.println("找到用户:" + userId + " ,分数：" + score + " ,排名：" + rank);
+			System.out.println("耗时："+(endTime-starTime)+" ms");
+	        
+	        executorService.shutdown();
+			executorService.shutdownNow();
+			
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+	}
+	
+	/**
+	 * 计算出开始结束坐标位置
+	 * @Title: splitLargeFile 
+	 * @param raf
+	 * @param fc
+	 * @return 参数说明
+	 * @return Map<Integer,MappedByteBuffer>    返回类型
+	 */
+	public void splitLargeFile(RandomAccessFile raf,long[] beginIndexs,long[] endIndexs){
+		try {
 			// 分成100块
-			long tempBlockSize = fc.size() / 100;
+			long tempBlockSize = raf.length() / blockSize;
 			//开始坐标
 			long beginIndex = 0;
 			// 开始结束坐标
 			long endIndex = 0;
 			
 			//计算出每个区块的MappedByteBuffer
-			for (int i = 0; i < 100; i++) {
+			for (int i = 0; i < blockSize; i++) {
 				beginIndex = endIndex;
-				if (i + 1 == 100) {
-					endIndex = fc.size();
-					tempMbbMap.put(i, fc.map(FileChannel.MapMode.READ_ONLY, beginIndex,endIndex-beginIndex));
+				beginIndexs[i] = beginIndex;
+				if (i + 1 == blockSize) {
+					endIndex = raf.length();
+					endIndexs[i] = endIndex;
 					break;
 				}
 				//计算结束坐标
 				endIndex += tempBlockSize;
 				// 计算出完整的结束位置
 				endIndex += getCompleteEndIndex(endIndex, raf, '\n');
-				//装进临时区块map
-				tempMbbMap.put(i, fc.map(FileChannel.MapMode.READ_ONLY, beginIndex,endIndex-beginIndex));
+				endIndexs[i] = endIndex;
+				endIndex++;
 			}
-			
-			//开始查找用户分数
-			ExecutorService executorService = Executors.newFixedThreadPool(5);
-	        CountDownLatch latch = new CountDownLatch(100);
-			for (int i = 0; i < 100; i++) {
-				executorService.execute(new getScoreThread(userId, tempMbbMap.get(i), latch));
-			}
-			latch.await();
-			System.out.println("用户分数：" + score + " ,用户记录位置：" + record + " ,排名：" + rank);
-			
-			//开始坐标
-			beginIndex = 0;
-			// 开始结束坐标
-			endIndex = 0;
-			for (int i = 0; i < 100; i++) {
-				beginIndex = endIndex;
-				if (i + 1 == 100) {
-					endIndex = fc.size();
-					tempMbbMap.put(i, fc.map(FileChannel.MapMode.READ_ONLY, beginIndex,endIndex-beginIndex));
-					break;
-				}
-				//计算结束坐标
-				endIndex += tempBlockSize;
-				// 计算出完整的结束位置
-				endIndex += getCompleteEndIndex(endIndex, raf, '\n');
-				//装进临时区块map
-				tempMbbMap.put(i, fc.map(FileChannel.MapMode.READ_ONLY, beginIndex,endIndex-beginIndex));
-			}
-			//开始查找用户排名
-	        CountDownLatch ranklatch = new CountDownLatch(100);
-	        for (int i = 0; i < 100; i++) {
-	        	executorService.execute(new getRankThread(tempMbbMap.get(i), ranklatch));
-			}
-	        ranklatch.await();
-			long endTime = System.currentTimeMillis();
-			System.out.println("用户分数：" + score + " ,用户记录位置：" + record + " ,排名：" + rank);
-			System.out.println("耗时：" + (endTime - starTime));
+		
 		} catch (Exception e) {
 			e.printStackTrace();
-		} finally {
-			try {
-				raf.close();
-				fc.close();
-			} catch (Exception e2) {
-				e2.printStackTrace();
-			}
 		}
 	}
 	
-	/**
-	 * 寻找用户分数线程
-	 * @author Administrator
-	 */
-	static class getScoreThread implements Runnable {
-		private String userId;
-		private MappedByteBuffer tempMbb;
-		private CountDownLatch latch;
-		
-		public getScoreThread(String userId,MappedByteBuffer tempMbb, CountDownLatch latch){
-			super();
-			this.userId = userId;
-			this.tempMbb = tempMbb;
-			this.latch = latch;
-			
-		}
-
-		@Override
-		public void run() {
-			//找到记录的标识
-			boolean findFlag = false;
-			Object[] lineObj = null;
-			while ((lineObj = readLine(tempMbb)) != null) {
-				if (Arrays.equals(userId.getBytes(), (byte[]) lineObj[0])) {
-					findFlag = true;
-					break;
-				}
-			}
-			//找到分数终止所有线程
-			if (findFlag) {
-				score = Integer.valueOf(new String((byte[]) lineObj[1])).longValue();
-				record = (int) lineObj[2];
-				for (int j = 0; j < latch.getCount(); j++) {
-					latch.countDown();
-				}
-			}else{
-				latch.countDown();
-			}
-			
-		}
-		
-	}
-	
-	/**
-	 * 寻找用户排名线程
-	 * @author Administrator
-	 */
-	static class getRankThread implements Runnable {
-		private MappedByteBuffer tempMbb;
-		private CountDownLatch latch;
-		
-		public getRankThread(MappedByteBuffer tempMbb, CountDownLatch latch){
-			super();
-			this.tempMbb = tempMbb;
-			this.latch = latch;
-			
-		}
-
-		@Override
-		public void run() {
-			Object[] lineObj = null;
-			while ((lineObj = readLine(tempMbb)) != null) {
-				long curScore = Integer.valueOf(rightTrim(new String((byte[]) lineObj[1]))).longValue();
-				int curRecord = (int) lineObj[2];
-				if(curScore > score){
-					addOne();
-				}else if(curScore == score && curRecord < record){
-					addOne();
-				}
-			}
-			latch.countDown();
-		}
-		
-	}
-	
-	public synchronized static void addOne(){
-		rank ++;
-	}
-
 	/**
 	 * 计算完整结束位置
 	 * @param endIndex
 	 * @param raf
 	 * @param separator
 	 */
-	public static long getCompleteEndIndex(long endIndex,RandomAccessFile raf, char separator) {
+	public long getCompleteEndIndex(long endIndex,RandomAccessFile raf, char separator) {
 		long count = 0;
 		try {
 			raf.seek(endIndex);
@@ -201,105 +124,144 @@ public class LargeFileTest {
 		}
 		return count;
 	}
+	
+	/**
+	 * 寻找用户分数线程
+	 * @author Administrator
+	 */
+	class getScoreThread implements Runnable {
+		private String userId;
+		private RandomAccessFile raf;
+		private long beginIndex;
+		private long endIndex;
+		private CountDownLatch latch;
+		
+		public getScoreThread(String userId,String filePath,long beginIndex,long endIndex, CountDownLatch latch){
+			super();
+			this.userId = userId;
+			this.beginIndex = beginIndex;
+			this.endIndex = endIndex;
+			this.latch = latch;
+			try {
+				this.raf = new RandomAccessFile(filePath,"r");
+			} catch (FileNotFoundException e) {
+				e.printStackTrace();
+			}
+		}
 
-	/**
-	 * 读取每一行的内容
-	 * 
-	 * @param mbb
-	 * @param begin
-	 * @param length
-	 * @return
-	 */
-	 public synchronized static Object[] readLine(MappedByteBuffer mbb) {
-//		 System.out.println(Thread.currentThread());
-		// 当前缓冲区总长度
-		int limit = mbb.limit();
-		// 当前位置
-		int position = mbb.position();
-		// 用户ID
-		ByteBuffer bb = ByteBuffer.allocate(36);
-		// 用户分数
-		ByteBuffer cc = ByteBuffer.allocate(6);
-		// 读取到逗号标识
-		boolean f = false;
-		try {
-			// 读取完直接跳出并清理缓存
-			if (position >= limit) {
-				clean(mbb);
-				return null;
-			}
-			
-			while (position < limit) {
-				byte b = mbb.get();
-				// 每行当读取到逗号时将后面的部分装进用户分数byte数组
-				if (b == 44) {
-					f = true;
-					continue;
-				}
-				// 碰到换行符结束读取
-				if (System.getProperty("line.separator").equals("\r\n") && (b == 13 || b == 10)) {
-					mbb.get();
+		@Override
+		public void run() {
+			boolean findFlag = false;
+			String blockStr = new String(readBlock());
+			String lineUserId = "";
+			String[] lineStrs = blockStr.split(System.lineSeparator());
+			for(String lineStr : lineStrs){
+				lineUserId = lineStr.substring(0, lineStr.indexOf(","));
+				if(lineUserId.equals(userId)){
+					score = Integer.valueOf(lineStr.substring(lineStr.indexOf(",")+1)).longValue();
+					findFlag = true;
 					break;
-				} else if (f) {
-					cc.put(b);
-				} else {
-					bb.put(b);
 				}
 			}
-		} catch (Exception e) {
-			e.printStackTrace();
-			return null;
-		}
-		return new Object[] { bb.array(), cc.array(), position};
-	}
-	
-	/**
-	 * 清理ByteBuffer
-	 * @param buffer
-	 * @throws Exception
-	 */
-	@SuppressWarnings({ "unchecked", "rawtypes" })
-	public synchronized static void clean(final MappedByteBuffer mbb) throws Exception {
-        AccessController.doPrivileged(new PrivilegedAction() {
-        	public Object run() {
-	            try {
-	               Method getCleanerMethod = mbb.getClass().getMethod("cleaner",new Class[0]);
-	               getCleanerMethod.setAccessible(true);
-	               sun.misc.Cleaner cleaner =(sun.misc.Cleaner)getCleanerMethod.invoke(mbb,new Object[0]);
-	               cleaner.clean();
-	            } catch(Exception e) {
-	               e.printStackTrace();
-	            }
-	            return null;
-        }
-        }); 
-	}
-	
-	/**
-	 * 去空
-	 * @param s
-	 * @return
-	 */
-	private static String rightTrim(String s){
-		char[] cs = s.toCharArray();
-		int pos= 0;
-		for(int i=cs.length-1;i>=0;i--){
-			String tostr = String.valueOf(cs[i]);
-			if(tostr.trim().length()!=0){
-				pos = i;
-				break ;
+			//找到分数结束线程
+			if(findFlag){
+				long curCount = latch.getCount();
+				for (long i = 0; i < curCount; i++) {
+					latch.countDown();
+				}
+			}else{
+				latch.countDown();
 			}
 		}
-		return s.substring(0,pos+1);
+		
+		//读取出每个区块的内容
+		private byte[] readBlock(){
+			byte[] blockByte = new byte[(int) (endIndex-beginIndex)];
+			try {
+				raf.seek(beginIndex);
+				raf.read(blockByte);
+				raf.close();
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			return blockByte;
+		}
 	}
 	
+	/**
+	 * 寻找用户排名线程
+	 * @author Administrator
+	 */
+	class getRankThread implements Runnable {
+		private String userId;
+		private RandomAccessFile raf;
+		private long beginIndex;
+		private long endIndex;
+		private CountDownLatch latch;
+		
+		public getRankThread(String userId,String filePath,long beginIndex,long endIndex, CountDownLatch latch){
+			super();
+			this.userId = userId;
+			this.beginIndex = beginIndex;
+			this.endIndex = endIndex;
+			this.latch = latch;
+			try {
+				this.raf = new RandomAccessFile(filePath,"r");
+			} catch (FileNotFoundException e) {
+				e.printStackTrace();
+			}
+		}
+
+		@Override
+		public void run() {
+			String blockStr = new String(readBlock());
+			String lineUserId = "";
+			long lineScore = 0;
+			String[] lineStrs = blockStr.split(System.lineSeparator());
+			for(String lineStr : lineStrs){
+				lineUserId = lineStr.substring(0, lineStr.indexOf(","));
+				lineScore = Integer.valueOf(lineStr.substring(lineStr.indexOf(",")+1)).longValue();
+				if(lineScore < score){
+					addOne();
+				}else if(score == lineScore){
+					//在前面已经找到了这条记录，所以后面出现相同分数，加一
+					if(recordFlag){
+						addOne();
+					}else if(lineUserId == userId){//找到记录改变全局变量
+						changeRecord();
+					}
+				}
+			}
+			latch.countDown();
+		}
+		
+		//读取出每个区块的内容
+		private byte[] readBlock(){
+			byte[] blockByte = new byte[(int) (endIndex-beginIndex)];
+			try {
+				raf.seek(beginIndex);
+				raf.read(blockByte);
+				raf.close();
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			return blockByte;
+		}
+	}
 	
+	public synchronized void changeRecord(){
+		recordFlag = true;
+	}
+	
+	public synchronized void addOne(){
+		rank ++;
+	}
 
 	public static void main(String[] args) {
+		LargeFileTest test = new LargeFileTest();
 		// 源文件路径
-		String inputFilePath = "E:/JavaTestFile/user_score.csv";
+		String inputFilePath = "E:/user_score.csv";
 		// 取用户名次
-		getUserRank("1661205e-14de-4805-b493-25a7cd177026", inputFilePath);
-
+		test.getUserRank("4bed281b-56c7-42df-8e2b-e244151831df", inputFilePath);
 	}
 }
