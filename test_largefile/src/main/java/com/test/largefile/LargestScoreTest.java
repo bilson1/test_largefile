@@ -33,12 +33,12 @@ import java.util.Map.Entry;
  */
 public class LargestScoreTest {
 	
-	public void getLargestScore(){
+	public void getLargestScore(String filePath){
 		long startTime = System.currentTimeMillis();
 		HashMap<Integer, Integer> largestScoreMap = new HashMap<Integer, Integer>();
 		BufferedReader reader = null;
 		try {
-			reader = new BufferedReader(new FileReader(new File("E:/user_score.csv")), 1024*1024);
+			reader = new BufferedReader(new FileReader(new File(filePath)), 1024*1024);
 			String line = null;
             while ((line = reader.readLine()) != null) {
             	UserEntity lineUser = new UserEntity(line.substring(0,line.lastIndexOf(",")), line.substring(line.lastIndexOf(",") + 1));
@@ -79,7 +79,7 @@ public class LargestScoreTest {
 	 */
 	public static void main(String[] args) {
 		LargestScoreTest test = new LargestScoreTest();
-		test.getLargestScore();
+		test.getLargestScore(args[0]);
 	}
 
 }

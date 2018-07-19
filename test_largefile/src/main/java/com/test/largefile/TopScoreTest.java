@@ -57,12 +57,12 @@ public class TopScoreTest {
 	}
 	
 	
-	public void getTopUser(Integer size){
+	public void getTopUser(Integer size,String filePath){
 		long startTime = System.currentTimeMillis();
 		BufferedReader reader = null;
 		TopQueue queue = new TopQueue(size);
 		try {
-			reader = new BufferedReader(new FileReader(new File("E:/user_score.csv")), 1024*1024);
+			reader = new BufferedReader(new FileReader(new File(filePath)), 1024*1024);
 			String line = null;
             while ((line = reader.readLine()) != null) {
                 queue.put(new UserEntity(line.substring(0,line.lastIndexOf(",")), line.substring(line.lastIndexOf(",") + 1)));
@@ -88,7 +88,7 @@ public class TopScoreTest {
 	 */
 	public static void main(String[] args) {
 		TopScoreTest test = new TopScoreTest();
-		test.getTopUser(100);
+		test.getTopUser(100,args[0]);
 	}
 
 }
